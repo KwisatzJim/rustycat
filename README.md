@@ -6,6 +6,9 @@ Prints file contents (or stdin) to your terminal with syntax highlighting,
 auto-detected from the file extension, using [syntect](https://github.com/trishume/syntect)
 (the same highlighting engine that powers `bat` and Sublime Text).
 
+<img width="1242" height="659" alt="Screenshot 2026-07-19 at 2 45 50 PM" src="https://github.com/user-attachments/assets/21417c9c-0871-4985-8af3-c45e2f75cb13" />
+
+
 ## Build
 
 ```
