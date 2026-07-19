@@ -1,0 +1,19 @@
+[package]
+name = "rustycat"
+version = "0.1.0"
+edition = "2024"
+description = "A colorized cat, inspired by ccat (https://github.com/owenthereal/ccat), written in Rust"
+license = "MIT"
+authors = ["Jim Kelley"]
+
+[[bin]]
+name = "rcat"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+syntect = { version = "5", default-features = false, features = ["parsing", "html", "default-syntaxes", "default-themes", "regex-fancy"] }
+
+[profile.release]
+lto = true
+strip = true
