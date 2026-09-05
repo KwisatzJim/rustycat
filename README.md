@@ -29,6 +29,7 @@ Examples:
 rcat main.rs                  # highlight a single file
 rcat -n main.rs                # ...with line numbers
 rcat main.rs Cargo.toml        # multiple files, each with a ==> filename <== header
+cat notes.txt | rcat first.txt - last.txt  # read stdin at `-` between files
 cat main.rs | rcat -l rust     # highlight stdin, forcing the "rust" language
 rcat -p file.txt                # plain mode, behaves like regular cat
 rcat --list-themes              # show available color themes
@@ -45,12 +46,14 @@ rcat -t "Solarized (dark)" main.rs   # pick a specific theme
 | `-t`, `--theme <THEME>` | Color theme (default: `base16-ocean.dark`) |
 | `-p`, `--plain` | Disable colorization entirely (plain `cat` behavior) |
 | `-f`, `--force-color` | Colorize even when stdout isn't a terminal (e.g. when piping to `less -R`) |
+| `--color <WHEN>` | Choose `auto`, `always`, or `never` |
 | `--list-themes` | List available themes and exit |
 | `--list-languages` | List supported languages and exit |
 
 By default, color is automatically disabled when output is piped/redirected
 (not a TTY) and re-enabled when writing to a real terminal — same convention
-as tools like `ls --color=auto`.
+as tools like `ls --color=auto`. Automatic mode also disables color when the
+`NO_COLOR` environment variable is set or `TERM=dumb`.
 
 ## Notes
 
