@@ -2,9 +2,14 @@
 name = "rustycat"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "A colorized cat, inspired by ccat (https://github.com/owenthereal/ccat), written in Rust"
 license = "MIT"
 authors = ["Jim Kelley"]
+repository = "https://github.com/KwisatzJim/rustycat"
+readme = "README.md"
+keywords = ["cat", "cli", "syntax-highlighting", "terminal"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "rcat"

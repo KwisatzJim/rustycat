@@ -9,13 +9,40 @@ auto-detected from the file extension, using [syntect](https://github.com/trishu
 <img width="1242" height="659" alt="Screenshot 2026-07-19 at 2 45 50 PM" src="https://github.com/user-attachments/assets/21417c9c-0871-4985-8af3-c45e2f75cb13" />
 
 
-## Build
+## Install
+
+### Download a binary
+
+Download the archive for your computer from the project's
+[GitHub Releases](https://github.com/KwisatzJim/rustycat/releases) page. Builds
+are provided for Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel), and
+Windows (x86_64). Each release includes a `SHA256SUMS` file for verifying the
+downloads.
+
+Extract the archive, then move `rcat` (`rcat.exe` on Windows) somewhere listed
+in your system's `PATH`.
+
+### Install from source
+
+Rustycat requires Rust 1.85 or newer. Install Rust through
+[rustup](https://rustup.rs/), then run:
 
 ```
-cargo build --release
+cargo install --git https://github.com/KwisatzJim/rustycat
 ```
 
-The binary is produced at `target/release/rcat`.
+This installs the `rcat` command in Cargo's binary directory (normally
+`~/.cargo/bin`).
+
+## Build locally
+
+```bash
+git clone https://github.com/KwisatzJim/rustycat.git
+cd rustycat
+cargo build --release --locked
+```
+
+The binary is produced at `target/release/rcat` (`rcat.exe` on Windows).
 
 ## Usage
 
@@ -57,7 +84,5 @@ as tools like `ls --color=auto`. Automatic mode also disables color when the
 
 ## Notes
 
-This build pins a few dependency versions (`syntect` 5.1, `clap` 4.4, etc.)
-for compatibility with older toolchains. If you're building with a recent
-stable Rust (1.80+), feel free to run `cargo update` to pick up newer
-versions — they'll work too.
+The checked-in `Cargo.lock` pins exact dependency versions so local and release
+builds use the same dependency set.
