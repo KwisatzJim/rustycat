@@ -10,7 +10,7 @@ use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, IsTerminal, Write};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Child, ChildStdin, Command, ExitCode, Stdio};
 
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, Theme, ThemeSet};
@@ -22,6 +22,108 @@ enum ColorChoice {
     Auto,
     Always,
     Never,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum PagingChoice {
+    Auto,
+    Always,
+    Never,
+}
+
+enum Output {
+    Stdout(io::BufWriter<io::Stdout>),
+    Pager {
+        child: Child,
+        stdin: Option<ChildStdin>,
+    },
+}
+
+impl Output {
+    fn start(choice: PagingChoice, automatic_paging_available: bool) -> io::Result<Self> {
+        let should_page = match choice {
+            PagingChoice::Auto => automatic_paging_available,
+            PagingChoice::Always => true,
+            PagingChoice::Never => false,
+        };
+
+        if should_page {
+            match Command::new("less")
+                .args(["-R", "-F", "-X"])
+                .stdin(Stdio::piped())
+                .spawn()
+            {
+                Ok(mut child) => {
+                    let stdin = child
+                        .stdin
+                        .take()
+                        .ok_or_else(|| io::Error::other("pager stdin was unavailable"))?;
+                    return Ok(Self::Pager {
+                        child,
+                        stdin: Some(stdin),
+                    });
+                }
+                Err(_) if matches!(choice, PagingChoice::Auto) => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(Self::Stdout(io::BufWriter::new(io::stdout())))
+    }
+
+    fn is_pager(&self) -> bool {
+        matches!(self, Self::Pager { .. })
+    }
+
+    fn finish(mut self) -> io::Result<()> {
+        self.flush()?;
+        if let Self::Pager { child, stdin } = &mut self {
+            stdin.take();
+            let status = child.wait()?;
+            if !status.success() {
+                return Err(io::Error::other(format!(
+                    "pager exited with status {status}"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Write for Output {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Stdout(stdout) => stdout.write(buf),
+            Self::Pager { stdin, .. } => write_to_pager(stdin, buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Stdout(stdout) => stdout.flush(),
+            Self::Pager { stdin, .. } => match stdin.as_mut().map(Write::flush) {
+                Some(Err(error)) if error.kind() == io::ErrorKind::BrokenPipe => {
+                    stdin.take();
+                    Ok(())
+                }
+                Some(result) => result,
+                None => Ok(()),
+            },
+        }
+    }
+}
+
+fn write_to_pager(stdin: &mut Option<ChildStdin>, buf: &[u8]) -> io::Result<usize> {
+    let Some(writer) = stdin.as_mut() else {
+        return Ok(buf.len());
+    };
+    match writer.write(buf) {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {
+            stdin.take();
+            Ok(buf.len())
+        }
+        result => result,
+    }
 }
 
 /// A colorized `cat`, written in Rust.
@@ -62,6 +164,10 @@ struct Args {
     /// When to use color: auto, always, or never
     #[arg(long, value_enum)]
     color: Option<ColorChoice>,
+
+    /// When to use a pager: auto, always, or never
+    #[arg(long, value_enum, default_value_t = PagingChoice::Auto)]
+    paging: PagingChoice,
 }
 
 fn main() -> ExitCode {
@@ -89,6 +195,16 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    let stdout_is_terminal = io::stdout().is_terminal();
+    let terminal_supports_paging = stdout_is_terminal && paging_terminal_is_usable();
+    let mut out = match Output::start(args.paging, terminal_supports_paging) {
+        Ok(output) => output,
+        Err(error) => {
+            eprintln!("rcat: failed to start pager: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     let color_choice = if args.plain {
         ColorChoice::Never
     } else if args.force_color {
@@ -100,7 +216,7 @@ fn main() -> ExitCode {
         ColorChoice::Always => true,
         ColorChoice::Never => false,
         ColorChoice::Auto => {
-            io::stdout().is_terminal() && !no_color_requested() && !terminal_is_dumb()
+            (stdout_is_terminal || out.is_pager()) && !no_color_requested() && !terminal_is_dumb()
         }
     };
 
@@ -119,8 +235,6 @@ fn main() -> ExitCode {
         None
     };
 
-    let stdout = io::stdout();
-    let mut out = io::BufWriter::new(stdout.lock());
     let mut had_error = false;
     let mut line_number = 0;
 
@@ -134,8 +248,8 @@ fn main() -> ExitCode {
                 eprintln!("rcat: failed to process stdin: {e}");
                 return ExitCode::FAILURE;
             }
-            if let Err(e) = out.flush() {
-                eprintln!("rcat: failed to flush output: {e}");
+            if let Err(e) = out.finish() {
+                eprintln!("rcat: failed to finish output: {e}");
                 return ExitCode::FAILURE;
             }
             return ExitCode::SUCCESS;
@@ -154,8 +268,8 @@ fn main() -> ExitCode {
             eprintln!("rcat: failed to process stdin: {e}");
             return ExitCode::FAILURE;
         }
-        if let Err(e) = out.flush() {
-            eprintln!("rcat: failed to flush output: {e}");
+        if let Err(e) = out.finish() {
+            eprintln!("rcat: failed to finish output: {e}");
             return ExitCode::FAILURE;
         }
         return ExitCode::SUCCESS;
@@ -226,8 +340,8 @@ fn main() -> ExitCode {
         }
     }
 
-    if let Err(e) = out.flush() {
-        eprintln!("rcat: failed to flush output: {e}");
+    if let Err(e) = out.finish() {
+        eprintln!("rcat: failed to finish output: {e}");
         return ExitCode::FAILURE;
     }
     if had_error {
@@ -243,6 +357,10 @@ fn no_color_requested() -> bool {
 
 fn terminal_is_dumb() -> bool {
     env::var_os("TERM").is_some_and(|value| value == "dumb")
+}
+
+fn paging_terminal_is_usable() -> bool {
+    env::var_os("TERM").is_some_and(|value| !value.is_empty() && value != "dumb")
 }
 
 /// Print bytes without changing their contents, optionally adding line numbers.

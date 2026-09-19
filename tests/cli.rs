@@ -171,3 +171,64 @@ fn color_option_controls_piped_output() {
     assert!(plain.status.success());
     assert_eq!(plain.stdout, b"fn main() {}\n");
 }
+
+#[test]
+fn automatic_paging_is_disabled_for_piped_output() {
+    let temp = TempDir::new();
+    let source = temp.file("example.txt", b"direct output\n");
+
+    let output = rcat()
+        .args(["--plain", source.to_str().expect("UTF-8 test path")])
+        .env("PATH", "")
+        .output()
+        .expect("run rcat");
+
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"direct output\n");
+}
+
+#[test]
+fn forced_paging_reports_a_missing_pager() {
+    let temp = TempDir::new();
+    let source = temp.file("example.txt", b"content\n");
+
+    let output = rcat()
+        .args([
+            "--paging",
+            "always",
+            source.to_str().expect("UTF-8 test path"),
+        ])
+        .env("PATH", "")
+        .output()
+        .expect("run rcat");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("failed to start pager"));
+}
+
+#[cfg(unix)]
+#[test]
+fn forced_paging_sends_output_through_less() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TempDir::new();
+    let source = temp.file("example.txt", b"paged output\n");
+    let pager = temp.file("less", b"#!/bin/sh\n/bin/cat\n");
+    let mut permissions = fs::metadata(&pager).expect("pager metadata").permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&pager, permissions).expect("make pager executable");
+
+    let output = rcat()
+        .args([
+            "--plain",
+            "--paging",
+            "always",
+            source.to_str().expect("UTF-8 test path"),
+        ])
+        .env("PATH", &temp.0)
+        .output()
+        .expect("run rcat");
+
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"paged output\n");
+}

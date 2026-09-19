@@ -59,6 +59,7 @@ rcat main.rs Cargo.toml        # multiple files, each with a ==> filename <== he
 cat notes.txt | rcat first.txt - last.txt  # read stdin at `-` between files
 cat main.rs | rcat -l rust     # highlight stdin, forcing the "rust" language
 rcat -p file.txt                # plain mode, behaves like regular cat
+rcat --paging=never large.log   # disable automatic paging
 rcat --list-themes              # show available color themes
 rcat --list-languages           # show all supported languages/syntaxes
 rcat -t "Solarized (dark)" main.rs   # pick a specific theme
@@ -74,6 +75,7 @@ rcat -t "Solarized (dark)" main.rs   # pick a specific theme
 | `-p`, `--plain` | Disable colorization entirely (plain `cat` behavior) |
 | `-f`, `--force-color` | Colorize even when stdout isn't a terminal (e.g. when piping to `less -R`) |
 | `--color <WHEN>` | Choose `auto`, `always`, or `never` |
+| `--paging <WHEN>` | Choose `auto`, `always`, or `never` (default: `auto`) |
 | `--list-themes` | List available themes and exit |
 | `--list-languages` | List supported languages and exit |
 
@@ -81,6 +83,41 @@ By default, color is automatically disabled when output is piped/redirected
 (not a TTY) and re-enabled when writing to a real terminal — same convention
 as tools like `ls --color=auto`. Automatic mode also disables color when the
 `NO_COLOR` environment variable is set or `TERM=dumb`.
+
+### Automatic paging
+
+When output is going to an interactive terminal, Rustycat automatically sends
+it through `less -RFX`. Short output exits the pager immediately, while output
+larger than one screen remains scrollable. Piped or redirected output never
+starts a pager automatically. Use `--paging=always` to force paging or
+`--paging=never` to disable it. If `less` is unavailable, automatic mode safely
+falls back to direct output.
+
+### Integration with other tools
+
+Disable paging when continuously monitoring a file. Specify the syntax when
+stdin does not provide a filename; this example assumes one JSON object per
+line:
+
+```bash
+tail -f application.jsonl | rcat --paging=never --color=always -l json
+```
+
+Combine Rustycat with `git show` to view an older version of a file with the
+correct syntax highlighting:
+
+```bash
+git show v0.1.0:src/main.rs | rcat -l rs
+```
+
+Rustycat can also serve as `man`'s pager. The bundled syntax set does not have a
+specialized man-page grammar, but this preserves the formatted page and forces
+terminal color:
+
+```bash
+export MANPAGER='rcat --color=always -l "Plain Text"'
+man 2 select
+```
 
 ## Notes
 
