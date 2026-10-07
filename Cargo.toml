@@ -16,6 +16,7 @@ name = "rcat"
 path = "src/main.rs"
 
 [dependencies]
+termimad = "0.35"
 clap = { version = "4", features = ["derive"] }
 syntect = { version = "5", default-features = false, features = ["parsing", "html", "default-syntaxes", "default-themes", "regex-fancy"] }
 

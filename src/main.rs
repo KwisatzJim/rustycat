@@ -17,6 +17,8 @@ use syntect::highlighting::{Style, Theme, ThemeSet};
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::as_24_bit_terminal_escaped;
 
+mod viewer;
+
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum ColorChoice {
     Auto,
@@ -40,7 +42,11 @@ enum Output {
 }
 
 impl Output {
-    fn start(choice: PagingChoice, automatic_paging_available: bool) -> io::Result<Self> {
+    fn start(
+        choice: PagingChoice,
+        automatic_paging_available: bool,
+        markdown_preview: bool,
+    ) -> io::Result<Self> {
         let should_page = match choice {
             PagingChoice::Auto => automatic_paging_available,
             PagingChoice::Always => true,
@@ -48,11 +54,13 @@ impl Output {
         };
 
         if should_page {
-            match Command::new("less")
-                .args(["-R", "-F", "-X"])
-                .stdin(Stdio::piped())
-                .spawn()
-            {
+            let mut command = Command::new("less");
+            command.args(["-R", "-F", "-X"]).stdin(Stdio::piped());
+            if markdown_preview {
+                // Rendered Markdown contains UTF-8 table borders and bullets.
+                command.env("LESSCHARSET", "utf-8");
+            }
+            match command.spawn() {
                 Ok(mut child) => {
                     let stdin = child
                         .stdin
@@ -137,6 +145,14 @@ struct Args {
     #[arg(short = 'n', long)]
     number: bool,
 
+    /// Render input as a Markdown preview
+    #[arg(long, conflicts_with_all = ["plain", "number", "language"])]
+    preview: bool,
+
+    /// Open one Markdown file with Tab to toggle source and preview
+    #[arg(long, conflicts_with_all = ["plain", "number", "language", "list_themes", "list_languages"])]
+    interactive: bool,
+
     /// Force a specific language/syntax (e.g. "rust", "python", "yaml")
     #[arg(short = 'l', long)]
     language: Option<String>,
@@ -173,6 +189,40 @@ struct Args {
 fn main() -> ExitCode {
     let args = Args::parse();
 
+    let interactive_terminal =
+        io::stdin().is_terminal() && io::stdout().is_terminal() && paging_terminal_is_usable();
+    if args.interactive || automatic_markdown_viewer(&args, interactive_terminal) {
+        let result = (|| {
+            if args.files.len() != 1
+                || !args.files[0].extension().is_some_and(|ext| {
+                    ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown")
+                })
+            {
+                return Err(io::Error::other("--interactive requires one Markdown file"));
+            }
+            if !interactive_terminal {
+                return Err(io::Error::other(
+                    "--interactive requires an interactive terminal",
+                ));
+            }
+            let markdown = std::fs::read_to_string(&args.files[0])?;
+            let color = args.force_color
+                || match args.color.unwrap_or(ColorChoice::Auto) {
+                    ColorChoice::Always => true,
+                    ColorChoice::Never => false,
+                    ColorChoice::Auto => !no_color_requested(),
+                };
+            viewer::show(&markdown, args.preview, color)
+        })();
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("rcat: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     let ss = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
 
@@ -197,7 +247,7 @@ fn main() -> ExitCode {
 
     let stdout_is_terminal = io::stdout().is_terminal();
     let terminal_supports_paging = stdout_is_terminal && paging_terminal_is_usable();
-    let mut out = match Output::start(args.paging, terminal_supports_paging) {
+    let mut out = match Output::start(args.paging, terminal_supports_paging, args.preview) {
         Ok(output) => output,
         Err(error) => {
             eprintln!("rcat: failed to start pager: {error}");
@@ -241,6 +291,16 @@ fn main() -> ExitCode {
     if args.files.is_empty() {
         let stdin = io::stdin();
         let mut input = stdin.lock();
+
+        if args.preview {
+            if let Err(e) =
+                print_markdown_preview(&mut input, colorize, &mut out).and_then(|()| out.finish())
+            {
+                eprintln!("rcat: failed to preview stdin: {e}");
+                return ExitCode::FAILURE;
+            }
+            return ExitCode::SUCCESS;
+        }
 
         if theme.is_none() {
             if let Err(e) = print_plain_content(&mut input, args.number, &mut line_number, &mut out)
@@ -309,7 +369,9 @@ fn main() -> ExitCode {
             }
         }
 
-        let result = if let Some(theme) = theme {
+        let result = if args.preview {
+            print_markdown_preview(&mut input, colorize, &mut out)
+        } else if let Some(theme) = theme {
             let syntax_path = (!is_stdin).then_some(path.as_path());
             let syntax = resolve_syntax(&ss, syntax_path, args.language.as_deref());
             print_highlighted_content(
@@ -351,8 +413,67 @@ fn main() -> ExitCode {
     }
 }
 
+fn automatic_markdown_viewer(args: &Args, interactive_terminal: bool) -> bool {
+    interactive_terminal
+        && !matches!(args.paging, PagingChoice::Never)
+        && !args.plain
+        && !args.number
+        && args.language.is_none()
+        && !args.list_themes
+        && !args.list_languages
+        && args.files.len() == 1
+        && args.files[0].extension().is_some_and(|ext| {
+            ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown")
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_viewer_respects_terminal_and_output_options() {
+        for extension in ["md", "MD", "markdown"] {
+            let args = Args::parse_from(["rcat", &format!("file.{extension}")]);
+            assert!(automatic_markdown_viewer(&args, true));
+            assert!(!automatic_markdown_viewer(&args, false));
+        }
+        for argv in [
+            vec!["rcat", "--paging=never", "file.md"],
+            vec!["rcat", "--plain", "file.md"],
+            vec!["rcat", "--number", "file.md"],
+            vec!["rcat", "--language=rust", "file.md"],
+            vec!["rcat", "--list-themes", "file.md"],
+            vec!["rcat", "--list-languages", "file.md"],
+            vec!["rcat", "file.md", "other.md"],
+            vec!["rcat", "file.rs"],
+            vec!["rcat", "-"],
+            vec!["rcat"],
+        ] {
+            assert!(!automatic_markdown_viewer(&Args::parse_from(argv), true));
+        }
+    }
+}
+
 fn no_color_requested() -> bool {
     env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty())
+}
+
+/// Preview explicitly requested Markdown using the existing output/pager path.
+fn print_markdown_preview(
+    input: &mut impl BufRead,
+    colorize: bool,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    let mut markdown = String::new();
+    input.read_to_string(&mut markdown)?;
+    let skin = if colorize {
+        termimad::MadSkin::default()
+    } else {
+        termimad::MadSkin::no_style()
+    };
+    let width = termimad::terminal_size().0 as usize;
+    write!(out, "{}", skin.text(&markdown, Some(width.max(20))))
 }
 
 fn terminal_is_dumb() -> bool {

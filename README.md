@@ -76,6 +76,8 @@ rcat -t "Solarized (dark)" main.rs   # pick a specific theme
 | `-f`, `--force-color` | Colorize even when stdout isn't a terminal (e.g. when piping to `less -R`) |
 | `--color <WHEN>` | Choose `auto`, `always`, or `never` |
 | `--paging <WHEN>` | Choose `auto`, `always`, or `never` (default: `auto`) |
+| `--preview` | Render input as a formatted Markdown preview |
+| `--interactive` | View one Markdown file; press Tab to toggle source/preview |
 | `--list-themes` | List available themes and exit |
 | `--list-languages` | List supported languages and exit |
 
@@ -85,6 +87,23 @@ as tools like `ls --color=auto`. Automatic mode also disables color when the
 `NO_COLOR` environment variable is set or `TERM=dumb`.
 
 ### Automatic paging
+
+Try `rcat --preview README.md` to preview Markdown headings, lists, tables,
+and code blocks in the terminal. Preview uses the same automatic paging as
+ordinary output and can also read Markdown from stdin. It cannot be combined
+with `--plain`, `--number`, or `--language`. This is a terminal preview;
+images and browser-specific Markdown features are not rendered. Ordinary
+`rcat README.md` still displays the source.
+
+Use `rcat README.md` in a terminal for a keyboard-controlled viewer. Press Tab
+to switch between source (without syntax coloring) and preview, arrow keys or
+Page Up/Page Down to scroll, and `q` to exit. Each view remembers its scroll
+position. Add `--preview` to start in preview mode. Interactive mode requires
+one `.md` or `.markdown` file and a terminal; it uses its own viewer rather
+than `less`. `--paging=never` bypasses the automatic viewer. Piped or redirected
+output, multiple files, and `--plain`, `--number`, or `--language` retain their
+ordinary output behavior. `--interactive` remains available to explicitly
+request the viewer.
 
 When output is going to an interactive terminal, Rustycat automatically sends
 it through `less -RFX`. Short output exits the pager immediately, while output

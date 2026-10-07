@@ -35,6 +35,28 @@ fn rcat() -> Command {
 }
 
 #[test]
+fn markdown_preview_formats_content_without_color_when_requested() {
+    let temp = TempDir::new();
+    let path = temp.file(
+        "preview.md",
+        b"# Heading\n\nA **bold** word.\n\n```\nlet x = 1;\n```\n",
+    );
+    let output = rcat()
+        .args(["--preview", "--color=never", "--paging=never"])
+        .arg(path)
+        .output()
+        .expect("run preview");
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).expect("UTF-8 preview");
+    assert!(text.contains("Heading"));
+    assert!(text.contains("A bold word."));
+    assert!(text.contains("let x = 1;"));
+    assert!(!text.contains("# Heading"));
+    assert!(!text.contains("```"));
+    assert!(!text.contains('\x1b'));
+}
+
+#[test]
 fn plain_mode_preserves_file_bytes() {
     let temp = TempDir::new();
 
@@ -204,6 +226,35 @@ fn forced_paging_reports_a_missing_pager() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("failed to start pager"));
+}
+
+#[cfg(unix)]
+#[test]
+fn markdown_preview_tells_pager_to_decode_utf8() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TempDir::new();
+    let source = temp.file(
+        "table.md",
+        b"| Flag | Description |\n|---|---|\n| -n | Number lines |\n",
+    );
+    let pager = temp.file(
+        "less",
+        b"#!/bin/sh\n[ \"$LESSCHARSET\" = utf-8 ] || exit 1\n/bin/cat\n",
+    );
+    fs::set_permissions(&pager, fs::Permissions::from_mode(0o755)).unwrap();
+    let output = rcat()
+        .args(["--preview", "--paging=always", "--color=never"])
+        .arg(source)
+        .env("PATH", &temp.0)
+        .env("LC_ALL", "C")
+        .env("LESSCHARSET", "ascii")
+        .output()
+        .expect("run preview with non-UTF-8 pager environment");
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains('│'));
+    assert!(text.contains("Number lines"));
 }
 
 #[cfg(unix)]
