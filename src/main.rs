@@ -427,34 +427,6 @@ fn automatic_markdown_viewer(args: &Args, interactive_terminal: bool) -> bool {
         })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn automatic_viewer_respects_terminal_and_output_options() {
-        for extension in ["md", "MD", "markdown"] {
-            let args = Args::parse_from(["rcat", &format!("file.{extension}")]);
-            assert!(automatic_markdown_viewer(&args, true));
-            assert!(!automatic_markdown_viewer(&args, false));
-        }
-        for argv in [
-            vec!["rcat", "--paging=never", "file.md"],
-            vec!["rcat", "--plain", "file.md"],
-            vec!["rcat", "--number", "file.md"],
-            vec!["rcat", "--language=rust", "file.md"],
-            vec!["rcat", "--list-themes", "file.md"],
-            vec!["rcat", "--list-languages", "file.md"],
-            vec!["rcat", "file.md", "other.md"],
-            vec!["rcat", "file.rs"],
-            vec!["rcat", "-"],
-            vec!["rcat"],
-        ] {
-            assert!(!automatic_markdown_viewer(&Args::parse_from(argv), true));
-        }
-    }
-}
-
 fn no_color_requested() -> bool {
     env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty())
 }
@@ -565,4 +537,32 @@ fn print_highlighted_content(
         bytes.clear();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_viewer_respects_terminal_and_output_options() {
+        for extension in ["md", "MD", "markdown"] {
+            let args = Args::parse_from(["rcat", &format!("file.{extension}")]);
+            assert!(automatic_markdown_viewer(&args, true));
+            assert!(!automatic_markdown_viewer(&args, false));
+        }
+        for argv in [
+            vec!["rcat", "--paging=never", "file.md"],
+            vec!["rcat", "--plain", "file.md"],
+            vec!["rcat", "--number", "file.md"],
+            vec!["rcat", "--language=rust", "file.md"],
+            vec!["rcat", "--list-themes", "file.md"],
+            vec!["rcat", "--list-languages", "file.md"],
+            vec!["rcat", "file.md", "other.md"],
+            vec!["rcat", "file.rs"],
+            vec!["rcat", "-"],
+            vec!["rcat"],
+        ] {
+            assert!(!automatic_markdown_viewer(&Args::parse_from(argv), true));
+        }
+    }
 }
